@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+
+# Conda
+envs/
+*.env
+
+# Logs
+logs/
+*.log
+
+# Data (meget vigtigt til dit projekt)
+data/
+
+# Isaac / simulation cache
+*.pkl
+*.cache
+
+# VS Code
+.vscode/
+
+# System
+.DS_Store
