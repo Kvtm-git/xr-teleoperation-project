@@ -16,11 +16,10 @@ HOME = str(Path.home())
 
 def find_terminal():
     candidates = [
+        ("xterm", lambda title, script: ["xterm", "-T", title, "-e", "bash", script]),
         ("x-terminal-emulator", lambda title, script: ["x-terminal-emulator", "-T", title, "-e", "bash", script]),
-        ("gnome-terminal", lambda title, script: ["gnome-terminal", "--title", title, "--", "bash", script]),
         ("konsole", lambda title, script: ["konsole", "-p", f"tabtitle={title}", "-e", "bash", script]),
         ("xfce4-terminal", lambda title, script: ["xfce4-terminal", "--title", title, "--command", f"bash {shlex.quote(script)}"]),
-        ("xterm", lambda title, script: ["xterm", "-T", title, "-e", "bash", script]),
     ]
     for name, builder in candidates:
         if which(name):
