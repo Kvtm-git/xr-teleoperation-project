@@ -10,8 +10,116 @@ import tkinter as tk
 from pathlib import Path
 from shutil import which
 from tkinter import ttk, messagebox
+import socket
+import threading
+import time
 
 HOME = str(Path.home())
+
+
+def find_image_server_ip(timeout: float = 2.0) -> str | None:
+    """Try to determine the image server IP from hostname and local network."""
+    def add_host_ips(host: str, ips: set[str]):
+        try:
+            resolved = socket.gethostbyname_ex(host)[2]
+            for ip in resolved:
+                if ip and not ip.startswith("127."):
+                    ips.add(ip)
+        except OSError:
+            pass
+
+    try:
+        # Try short hostname / FQDN first.
+        hostname = socket.gethostname()
+        fqdn = socket.getfqdn()
+        ip_candidates: set[str] = set()
+
+        add_host_ips(hostname, ip_candidates)
+        if "." in hostname:
+            add_host_ips(hostname.split(".")[0], ip_candidates)
+        if fqdn and fqdn != hostname:
+            add_host_ips(fqdn, ip_candidates)
+
+        # Use hostname -I to get the local interface IP directly.
+        local_ip = None
+        try:
+            output = subprocess.check_output(["hostname", "-I"], text=True, stderr=subprocess.DEVNULL).strip()
+            for token in output.split():
+                if token and not token.startswith("127."):
+                    ip_candidates.add(token)
+                    if local_ip is None:
+                        local_ip = token
+        except Exception:
+            pass
+
+        if local_ip:
+            print(f"Local IP from hostname -I: {local_ip}")
+
+        print(f"Hostname-derived IP candidates: {sorted(ip_candidates)}")
+        for ip in sorted(ip_candidates):
+            if _test_image_server(ip, 55555, timeout):
+                print(f"Found image server by hostname lookup at {ip}:55555")
+                return ip
+
+        priority_ips = [
+            "192.168.123.164",
+            "172.17.45.95",
+        ]
+        for ip in priority_ips:
+            if _test_image_server(ip, 55555, timeout):
+                print(f"Found image server at {ip}:55555")
+                return ip
+
+        if local_ip and not local_ip.startswith("127."):
+            print(f"Using local interface IP without port verification: {local_ip}")
+            return local_ip
+
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+
+        if local_ip and not local_ip.startswith("127."):
+            if _test_image_server(local_ip, 55555, timeout):
+                print(f"Found image server at local IP {local_ip}:55555")
+                return local_ip
+            if local_ip not in ip_candidates:
+                ip_candidates.add(local_ip)
+
+        if local_ip and local_ip.count('.') == 3:
+            ip_parts = local_ip.split('.')
+            subnet = f"{ip_parts[0]}.{ip_parts[1]}.{ip_parts[2]}."
+            print(f"Scanning subnet {subnet}0/24 for image server on port 55555...")
+            for i in range(1, 255):
+                ip = f"{subnet}{i}"
+                if ip in ip_candidates or ip in priority_ips or ip == local_ip:
+                    continue
+                if _test_image_server(ip, 55555, timeout):
+                    print(f"Found image server at {ip}:55555")
+                    return ip
+
+        if local_ip:
+            print(f"Defaulting to local interface IP: {local_ip}")
+            return local_ip
+
+        print("No image server found on local network")
+        return None
+
+    except Exception as e:
+        print(f"Error scanning for image server: {e}")
+        return None
+
+
+def _test_image_server(ip: str, port: int, timeout: float) -> bool:
+    """Test if image server is running on given IP and port"""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        result = sock.connect_ex((ip, port))
+        sock.close()
+        return result == 0
+    except:
+        return False
 
 
 def find_terminal():
@@ -34,26 +142,81 @@ class App:
         self.root.geometry("780x640")
 
         self.sim_env = tk.StringVar(value="unitree_sim_env")
+        self.sim_env.trace_add("write", lambda *args: self.refresh())
         self.teleop_env = tk.StringVar(value="tv")
+        self.teleop_env.trace_add("write", lambda *args: self.refresh())
         self.sim_path = tk.StringVar(value=f"{HOME}/unitree_sim_isaaclab")
+        self.sim_path.trace_add("write", lambda *args: self.refresh())
         self.teleop_path = tk.StringVar(value=f"{HOME}/afsluttende_projekt/repos/xr_teleoperate/teleop")
-        self.img_ip = tk.StringVar(value="172.17.45.95")
+        self.teleop_path.trace_add("write", lambda *args: self.refresh())
+        self.img_ip = tk.StringVar(value="192.168.123.164")
+        self.img_ip.trace_add("write", lambda *args: self.refresh())
 
         self.input_mode = tk.StringVar(value="hand")
+        self.input_mode.trace_add("write", lambda *args: self.refresh())
         self.ee = tk.StringVar(value="dex3")
+        self.ee.trace_add("write", lambda *args: self.refresh())
         self.arm = tk.StringVar(value="G1_29")
+        self.arm.trace_add("write", lambda *args: self.refresh())
         self.display_mode = tk.StringVar(value="immersive")
+        self.display_mode.trace_add("write", lambda *args: self.refresh())
         self.device = tk.StringVar(value="cpu")
+        self.device.trace_add("write", lambda *args: self.refresh())
         self.task = tk.StringVar(value="Isaac-PickPlace-Cylinder-G129-Dex3-Joint")
+        self.task.trace_add("write", lambda *args: self.refresh())
         self.robot_type = tk.StringVar(value="g129")
+        self.robot_type.trace_add("write", lambda *args: self.refresh())
 
         self.enable_cameras = tk.BooleanVar(value=True)
+        self.enable_cameras.trace_add("write", lambda *args: self.refresh())
         self.enable_dex3_dds = tk.BooleanVar(value=True)
+        self.enable_dex3_dds.trace_add("write", lambda *args: self.refresh())
         self.headless = tk.BooleanVar(value=False)
+        self.headless.trace_add("write", lambda *args: self.refresh())
         self.record = tk.BooleanVar(value=False)
+        self.record.trace_add("write", lambda *args: self.refresh())
         self.motion = tk.BooleanVar(value=False)
+        self.motion.trace_add("write", lambda *args: self.refresh())
 
+        # Auto-detect image server IP on startup
+        self.auto_detect_image_ip()
+        
         self.build()
+        self.refresh()  # Initial preview update
+
+    def auto_detect_image_ip(self):
+        """Automatically detect image server IP"""
+        def detect():
+            ip = find_image_server_ip()
+            if ip:
+                self.img_ip.set(ip)
+                print(f"Auto-detected image server IP: {ip}")
+                # Update preview in main thread
+                self.root.after(0, self.refresh)
+            else:
+                print("Could not auto-detect image server IP, keeping current value")
+        
+        # Run detection in background thread to avoid blocking UI
+        thread = threading.Thread(target=detect, daemon=True)
+        thread.start()
+
+    def manual_detect_image_ip(self):
+        """Manually trigger image server IP detection"""
+        def detect():
+            self.root.after(0, lambda: self.root.config(cursor="watch"))
+            try:
+                ip = find_image_server_ip()
+                if ip:
+                    self.img_ip.set(ip)
+                    self.root.after(0, lambda: messagebox.showinfo("Success", f"Found image server at: {ip}"))
+                    self.root.after(0, self.refresh)
+                else:
+                    self.root.after(0, lambda: messagebox.showwarning("Not Found", "Could not find image server on local network"))
+            finally:
+                self.root.after(0, lambda: self.root.config(cursor=""))
+
+        thread = threading.Thread(target=detect, daemon=True)
+        thread.start()
 
     def build(self):
         outer = ttk.Frame(self.root, padding=12)
@@ -71,7 +234,14 @@ class App:
         self.row(p, 1, "Teleop env", self.teleop_env, 30)
         self.row(p, 2, "Sim path", self.sim_path, 70)
         self.row(p, 3, "Teleop path", self.teleop_path, 70)
-        self.row(p, 4, "Image server IP", self.img_ip, 30)
+        
+        # Custom row for Image server IP with auto-detect button
+        ttk.Label(p, text="Image server IP").grid(row=4, column=0, sticky="w", padx=(0, 12), pady=4)
+        ip_frame = ttk.Frame(p)
+        ip_frame.grid(row=4, column=1, sticky="ew", pady=4)
+        ttk.Entry(ip_frame, textvariable=self.img_ip, width=20).pack(side="left", fill="x", expand=True)
+        ttk.Button(ip_frame, text="Auto-detect", command=self.manual_detect_image_ip).pack(side="right", padx=(6, 0))
+        p.grid_columnconfigure(1, weight=1)
 
         s = ttk.LabelFrame(outer, text="Simulation", padding=10)
         s.pack(fill="x", pady=6)
