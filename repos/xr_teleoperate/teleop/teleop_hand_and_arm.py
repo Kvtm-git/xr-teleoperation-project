@@ -251,7 +251,7 @@ if __name__ == '__main__':
                                      task_desc = args.task_desc,
                                      task_steps = args.task_steps,
                                      frequency = args.frequency, 
-                                     rerun_log = not args.headless)
+                                     rerun_log = False)
 
         logger_mp.info("----------------------------------------------------------------")
         logger_mp.info("🟢  Press [r] to start syncing the robot with your movements.")
@@ -363,6 +363,24 @@ if __name__ == '__main__':
                         right_hand_action = dual_hand_action_array[-7:]
                         current_body_state = []
                         current_body_action = []
+
+                elif args.ee == "dex3" and args.input_mode == "controller":
+                    with dual_hand_data_lock:
+                        left_ee_state = dual_hand_state_array[:7]
+                        right_ee_state = dual_hand_state_array[-7:]
+
+                        left_hand_action = dual_hand_action_array[:7]
+                        right_hand_action = dual_hand_action_array[-7:]
+
+                        current_body_state = []
+                        current_body_action = []
+
+                    with left_trigger_value.get_lock():
+                        left_trigger_record = float(left_trigger_value.value)
+
+                    with right_trigger_value.get_lock():
+                        right_trigger_record = float(right_trigger_value.value)
+                
                 elif args.ee == "dex1" and args.input_mode == "hand":
                     with dual_gripper_data_lock:
                         left_ee_state = [dual_gripper_state_array[0]]
@@ -472,15 +490,17 @@ if __name__ == '__main__':
                             "qvel":   [],       
                             "torque": [],       
                         },                         
-                        "left_ee": {                                   
-                            "qpos":   left_hand_action,       
-                            "qvel":   [],       
-                            "torque": [],       
-                        }, 
-                        "right_ee": {                                   
-                            "qpos":   right_hand_action,       
-                            "qvel":   [],       
-                            "torque": [], 
+                        "left_ee": {
+                            "qpos": left_hand_action,
+                            "trigger": left_trigger_record if args.ee == "dex3" and args.input_mode == "controller" else None,
+                            "qvel": [],
+                            "torque": [],
+                        },
+                        "right_ee": {
+                            "qpos": right_hand_action,
+                            "trigger": right_trigger_record if args.ee == "dex3" and args.input_mode == "controller" else None,
+                            "qvel": [],
+                            "torque": [],
                         }, 
                         "body": {
                             "qpos": current_body_action,
