@@ -23,12 +23,6 @@ from teleop.utils.weighted_moving_filter import WeightedMovingFilter
 import logging_mp
 logger_mp = logging_mp.getLogger(__name__)
 
-import os
-import sys
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../test_tools")))
-from trigger_test_logger import TriggerTestLogger
-
 
 Dex3_Num_Motors = 7
 kTopicDex3LeftCommand = "rt/dex3/left/cmd"
@@ -180,8 +174,6 @@ class Dex3_1_Controller:
 ):
         self.running = True
 
-        trigger_logger = TriggerTestLogger(test_name="dex3_trigger_mapping_test")
-
         left_q_target  = np.full(Dex3_Num_Motors, 0)
         right_q_target = np.full(Dex3_Num_Motors, 0)
 
@@ -254,17 +246,6 @@ class Dex3_1_Controller:
 
                     left_q_target = left_open_pose + left_trigger * dex3_left_close_delta
                     right_q_target = right_open_pose + right_trigger * dex3_right_close_delta
-
-                    trigger_logger.log(
-                        left_trigger=left_trigger,
-                        right_trigger=right_trigger,
-                        left_q_target=left_q_target,
-                        right_q_target=right_q_target
-)
-
-                    if len(trigger_logger.rows) % 100 == 0:
-                        trigger_logger.save()
-
                 else:
                     if not np.all(right_hand_data == 0.0) and not np.all(left_hand_data[4] == np.array([-1.13, 0.3, 0.15])):
                         ref_left_value = left_hand_data[self.hand_retargeting.left_indices[1, :]] - left_hand_data[self.hand_retargeting.left_indices[0, :]]
@@ -288,7 +269,6 @@ class Dex3_1_Controller:
         except Exception:
             pass
         finally:
-            trigger_logger.save()
             logger_mp.info("Dex3_1_Controller has been closed.")
 
 class Dex3_1_Left_JointIndex(IntEnum):
@@ -521,19 +501,7 @@ if __name__ == "__main__":
         dual_hand_data_lock = Lock()
         dual_hand_state_array = Array('d', 14, lock = False)   # [output] current left, right hand state(14) data.
         dual_hand_action_array = Array('d', 14, lock = False)  # [output] current left, right hand action(14) data.
-        left_trigger_value = Value('d', 10.0, lock=True)
-        right_trigger_value = Value('d', 10.0, lock=True)
-
-        hand_ctrl = Dex3_1_Controller(
-            left_hand_pos_array,
-            right_hand_pos_array,
-            dual_hand_data_lock,
-            dual_hand_state_array,
-            dual_hand_action_array,
-            left_trigger_value_in=left_trigger_value,
-            right_trigger_value_in=right_trigger_value,
-            use_trigger_mapping=(args.xr_mode == "controller")
-)
+        hand_ctrl = Dex3_1_Controller(left_hand_pos_array, right_hand_pos_array, dual_hand_data_lock, dual_hand_state_array, dual_hand_action_array)
     elif args.ee == "dex1":
         left_gripper_value = Value('d', 0.0, lock=True)        # [input]
         right_gripper_value = Value('d', 0.0, lock=True)       # [input]
@@ -548,25 +516,16 @@ if __name__ == "__main__":
             head_img, head_img_fps = img_client.get_head_frame()
             tv_wrapper.set_display_image(head_img)
             tele_data = tv_wrapper.get_tele_data()
-
-            if args.ee == "dex3" and args.xr_mode == "controller":
-                with left_trigger_value.get_lock():
-                    left_trigger_value.value = tele_data.left_ctrl_triggerValue
-                with right_trigger_value.get_lock():
-                    right_trigger_value.value = tele_data.right_ctrl_triggerValue
-
-            elif args.ee == "dex3" and args.xr_mode == "hand":
+            if args.ee == "dex3" and args.xr_mode == "hand":
                 with left_hand_pos_array.get_lock():
                     left_hand_pos_array[:] = tele_data.left_hand_pos.flatten()
                 with right_hand_pos_array.get_lock():
                     right_hand_pos_array[:] = tele_data.right_hand_pos.flatten()
-
             elif args.ee == "dex1" and args.xr_mode == "controller":
                 with left_gripper_value.get_lock():
                     left_gripper_value.value = tele_data.left_ctrl_triggerValue
                 with right_gripper_value.get_lock():
                     right_gripper_value.value = tele_data.right_ctrl_triggerValue
-
             elif args.ee == "dex1" and args.xr_mode == "hand":
                 with left_gripper_value.get_lock():
                     left_gripper_value.value = tele_data.left_hand_pinchValue
